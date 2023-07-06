@@ -235,7 +235,7 @@ def main(
     sun_times = find_sunrise_sunset(ms, sun_coords, times)
 
     if sun_times.rise is None and sun_times.set is None:
-        logger.info("The Sun is never above the horizon. Yay!")
+        logger.info("The Sun was never above the horizon. Yay!")
         return
 
     if sun_times.rise is None:
