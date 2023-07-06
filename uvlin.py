@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 Run UVlin to remove the Sun from a measurement set.
+
+See https://yandasoft.readthedocs.io/en/develop/calim/ccontsubtract.html
+for more information on UVlin.
 """
 import logging
 import sys
@@ -14,7 +17,7 @@ from astropy import units as u
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord, get_sun
 from astropy.time import Time
 from casacore.tables import table
-from potato import get_pos, msutils
+from potato import msutils
 from spython.main import Client
 
 logger = logging.getLogger(__name__)
@@ -197,7 +200,7 @@ Phase rotating the measurement set to the Sun's mean position:
         ms.as_posix(),
         ra=sun_mean_coord.ra.deg,
         dec=sun_mean_coord.dec.deg,
-        datacolumn=data_column,
+        datacolumn=[data_column],
     )
 
     # Run UVlin on the measurement set for all times when the Sun is above
