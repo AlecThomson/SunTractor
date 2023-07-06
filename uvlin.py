@@ -63,7 +63,7 @@ def find_sunrise_sunset(
 
     Returns:
         SunTimes: Sunrise and sunset times.
-    """    
+    """
     # Check when the Sun is above the horizon
     # Get the position of the observatory
     with table(str(ms / "ANTENNA"), ack=False, readonly=True) as tab:
@@ -133,7 +133,7 @@ def uvlin(
         width (int, optional): Number of channels to fit in box. Defaults to 0.
         offset (int, optional): Offset of box. Defaults to 0.
         yanda (Union[Path, str], optional): Singularity image. Defaults to "docker://csirocass/yandasoft:release-openmpi4".
-    """    
+    """
     # Create a parset for UVlin and write it to disk
     parset = f"""# ccontsubtract parameters
 # The measurement set name - the data will be overwritten
@@ -196,7 +196,7 @@ def main(
         width (int, optional): Width of channel box. Defaults to 0.
         offset (int, optional): Offset of channel box. Defaults to 0.
         yanda (Union[Path, str], optional): YandaSoft image. Defaults to "docker://csirocass/yandasoft:release-openmpi4".
-    """    
+    """
     # Procedure:
     # 1. Get the position of the Sun for all times in the measurement set
     # 2. Check when the Sun is above the horizon
