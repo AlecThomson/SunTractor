@@ -10,9 +10,10 @@ from astropy.time import Time
 from astropy import units as u
 from casacore.tables import table
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 from dataclasses import dataclass
 import logging
+from spython.main import Client
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -65,6 +66,74 @@ def find_sunrise_sunset(
 
     return sun_times
 
+def get_yanda(yanda: Union[Path, str]) -> Path:
+    """Pull YandaSoft image from dockerhub (or wherver) or load it if it's already
+    on the system.
+
+    Args:
+        version (str, optional): wsclean image tag. Defaults to "3.1".
+
+    Returns:
+        Path: Path to wsclean image.
+    """
+    Client.load(str(yanda))
+    if isinstance(yanda, str):
+        return Path(Client.pull(yanda))
+    return yanda
+
+def uvlin(
+        ms: Path,
+        sun_times: SunTimes,
+        data_column: str = "DATA",
+        order: int = 2,
+        harmonic: int = 0,
+        width: int = 0,
+        offset: int = 0,
+        yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
+):
+
+    parset = f"""# ccontsubtract parameters
+# The measurement set name - the data will be overwritten
+CContSubtract.dataset                   = {ms.as_posix()}
+CContsubtract.datacolumn                = {data_column}
+CContsubtract.doUVlin                   = true
+CContsubtract.order                     = {order}
+CContsubtract.harmonic                  = {harmonic}
+CContsubtract.width                     = {width}
+CContsubtract.offset                    = {offset}
+CContsubtract.timerange                 = [{(sun_times.rise.mjd * u.day).to(u.s).value},{(sun_times.set.mjd * u.day).to(u.s).value}]
+# The model definition - we provide a zero Jy source to keep ccontsubtract happy
+CContsubtract.sources.names              = [lsm]
+CContsubtract.sources.lsm.direction      = [00:00:00.00,00:00:00.00,J2000]
+CContsubtract.sources.lsm.components     = [comp]
+CContsubtract.sources.comp.flux.i        = 0.0
+CContsubtract.sources.comp.direction.ra  = 0.
+CContsubtract.sources.comp.direction.dec = 0.
+# The gridding parameters - we specify a gridder to avoid complaints
+CContSubtract.gridder                     = Box
+    """
+
+    parset_path = ms.with_suffix(".uvlin.parset")
+    logger.info(f"Writing parset to {parset_path}")
+    with open(parset_path, "w") as f:
+        f.write(parset)
+
+
+    command = f"ccontsubtract -c {parset_path.as_posix()}"
+    root_dir = ms.parent
+
+    # Get the YandaSoft image
+    simage = get_yanda(yanda)
+    output = Client.execute(
+        image=simage.resolve(strict=True).as_posix(),
+        command=command.split(),
+        bind=f"{root_dir.resolve(strict=True).as_posix()}:{root_dir.resolve(strict=True).as_posix()}",
+        return_result=True,
+        quiet=False,
+        stream=True,
+    )
+    for line in output:
+        logger.info(line.rstrip())
 
 def main(
         ms: Path,
@@ -122,3 +191,26 @@ Running UVlin on the measurement set for all times when the Sun is above the hor
     {sun_times.rise.iso} - {sun_times.set.iso}
         """
     )
+
+def cli():
+    import argparse
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--hosted-yanda",
+        type=str,
+        default="docker://csirocass/yandasoft:release-openmpi4",
+        help="Docker or Singularity image for wsclean",
+    )
+    group.add_argument(
+        "--local-yanda",
+        type=str,
+        default=None,
+        help="Path to local wsclean Singularity image",
+    )
+    args = parser.parse_args()
+
+    yanda=Path(args.local_yanda) if args.local_yanda else args.hosted_yanda
