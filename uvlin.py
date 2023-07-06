@@ -3,42 +3,45 @@
 """
 Run UVlin to remove the Sun from a measurement set.
 """
-import sys
-from pathlib import Path
-from potato import get_pos, msutils
-from astropy.coordinates import SkyCoord, get_sun, AltAz, EarthLocation
-from astropy.time import Time
-from astropy import units as u
-from casacore.tables import table
-import numpy as np
-from typing import Tuple, Optional, Union
-from dataclasses import dataclass
 import logging
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional, Tuple, Union
+
+import numpy as np
+from astropy import units as u
+from astropy.coordinates import AltAz, EarthLocation, SkyCoord, get_sun
+from astropy.time import Time
+from casacore.tables import table
+from potato import get_pos, msutils
 from spython.main import Client
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
 
 @dataclass(slots=True)
 class SunTimes:
     rise: Optional[Time] = None
     set: Optional[Time] = None
 
+
 def get_unique_times(
-        ms: Path,
+    ms: Path,
 ) -> Time:
     # Get the time of the observation
     logger.info(f"Reading {ms} for time information...")
     with table(ms.as_posix(), ack=False) as tab:
         time_arr = np.unique(tab.getcol("TIME"))
         times = Time(time_arr * u.s, format="mjd")
-    return times    
+    return times
 
 
 def find_sunrise_sunset(
-        ms: Path,
-        sun_coords: SkyCoord,
-        times: Time,
+    ms: Path,
+    sun_coords: SkyCoord,
+    times: Time,
 ) -> SunTimes:
     # Check when the Sun is above the horizon
     # Get the position of the observatory
@@ -54,11 +57,14 @@ def find_sunrise_sunset(
     above_horizon = sun_altaz.alt > 0 * u.deg
     if not above_horizon.any():
         return sun_times
-    
+
     zero_crossings = np.where(np.diff(np.sign(sun_altaz.alt)))[0]
 
     for crossing in zero_crossings:
-        if np.sign(sun_altaz.alt[crossing-1]) < 0 and np.sign(sun_altaz.alt[crossing+1]) > 0:
+        if (
+            np.sign(sun_altaz.alt[crossing - 1]) < 0
+            and np.sign(sun_altaz.alt[crossing + 1]) > 0
+        ):
             sun_times.rise = times[crossing]
             logger.info(f"Sunrise was at {sun_times.rise.iso}")
         else:
@@ -66,6 +72,7 @@ def find_sunrise_sunset(
             logger.info(f"Sunset was at {sun_times.set.iso}")
 
     return sun_times
+
 
 def get_yanda(yanda: Union[Path, str]) -> Path:
     """Pull YandaSoft image from dockerhub (or wherver) or load it if it's already
@@ -82,17 +89,17 @@ def get_yanda(yanda: Union[Path, str]) -> Path:
         return Path(Client.pull(yanda))
     return yanda
 
-def uvlin(
-        ms: Path,
-        sun_times: SunTimes,
-        data_column: str = "DATA",
-        order: int = 2,
-        harmonic: int = 0,
-        width: int = 0,
-        offset: int = 0,
-        yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
-) -> None:
 
+def uvlin(
+    ms: Path,
+    sun_times: SunTimes,
+    data_column: str = "DATA",
+    order: int = 2,
+    harmonic: int = 0,
+    width: int = 0,
+    offset: int = 0,
+    yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
+) -> None:
     parset = f"""# ccontsubtract parameters
 # The measurement set name - the data will be overwritten
 CContSubtract.dataset                   = {ms.as_posix()}
@@ -119,7 +126,6 @@ CContSubtract.gridder                     = Box
     with open(parset_path, "w") as f:
         f.write(parset)
 
-
     command = f"ccontsubtract -c {parset_path.as_posix()}"
     root_dir = ms.parent
 
@@ -136,14 +142,15 @@ CContSubtract.gridder                     = Box
     for line in output:
         logger.info(line.rstrip())
 
+
 def main(
-        ms: Path,
-        data_column: str = "DATA",
-        order: int = 2,
-        harmonic: int = 0,
-        width: int = 0,
-        offset: int = 0,
-        yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
+    ms: Path,
+    data_column: str = "DATA",
+    order: int = 2,
+    harmonic: int = 0,
+    width: int = 0,
+    offset: int = 0,
+    yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
 ):
     # Procedure:
     # 1. Get the position of the Sun for all times in the measurement set
@@ -167,11 +174,15 @@ def main(
         return
 
     if sun_times.rise is None:
-        logger.info("Sunrise was before the observation started. Using the first time in the observation.")
+        logger.info(
+            "Sunrise was before the observation started. Using the first time in the observation."
+        )
         sun_times.rise = times[0]
-    
+
     if sun_times.set is None:
-        logger.info("Sunset was after the observation ended. Using the last time in the observation.")
+        logger.info(
+            "Sunset was after the observation ended. Using the last time in the observation."
+        )
         sun_times.set = times[-1]
 
     orginal_phase = SkyCoord(*msutils.get_phase_direction(ms.as_posix()), unit="deg")
@@ -224,8 +235,10 @@ Phase rotating the measurement set back to the original phase centre:
 
     logger.info("Done!")
 
+
 def cli():
     import argparse
+
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -280,7 +293,7 @@ def cli():
     )
     args = parser.parse_args()
 
-    yanda=Path(args.local_yanda) if args.local_yanda else args.hosted_yanda
+    yanda = Path(args.local_yanda) if args.local_yanda else args.hosted_yanda
 
     main(
         Path(args.ms),
@@ -291,6 +304,7 @@ def cli():
         offset=args.offset,
         yanda=yanda,
     )
+
 
 if __name__ == "__main__":
     sys.exit(cli())
