@@ -90,7 +90,7 @@ def uvlin(
         width: int = 0,
         offset: int = 0,
         yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
-):
+) -> None:
 
     parset = f"""# ccontsubtract parameters
 # The measurement set name - the data will be overwritten
@@ -138,6 +138,11 @@ CContSubtract.gridder                     = Box
 def main(
         ms: Path,
         data_column: str = "DATA",
+        order: int = 2,
+        harmonic: int = 0,
+        width: int = 0,
+        offset: int = 0,
+        yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
 ):
     # Procedure:
     # 1. Get the position of the Sun for all times in the measurement set
@@ -191,6 +196,32 @@ Running UVlin on the measurement set for all times when the Sun is above the hor
     {sun_times.rise.iso} - {sun_times.set.iso}
         """
     )
+    uvlin(
+        ms=ms,
+        sun_times=sun_times,
+        data_column=data_column,
+        order=order,
+        harmonic=harmonic,
+        width=width,
+        offset=offset,
+        yanda=yanda,
+    )
+
+    # Phase rotate the measurement set back to the original phase centre
+    logger.info(
+        f"""
+Phase rotating the measurement set back to the original phase centre:
+    {orginal_phase.ra:0.1f} {orginal_phase.dec:0.1f}
+        """
+    )
+    msutils.do_rotate(
+        ms.as_posix(),
+        ra=orginal_phase.ra.deg,
+        dec=orginal_phase.dec.deg,
+        datacolumn=data_column,
+    )
+
+    logger.info("Done!")
 
 def cli():
     import argparse
