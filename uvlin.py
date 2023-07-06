@@ -33,9 +33,17 @@ class SunTimes:
 def get_unique_times(
     ms: Path,
 ) -> Time:
+    """Get the unique times in a measurement set.
+
+    Args:
+        ms (Path): Measurement set to get the times from.
+
+    Returns:
+        Time: Unique times in the measurement set.
+    """
     # Get the time of the observation
     logger.info(f"Reading {ms} for time information...")
-    with table(ms.as_posix(), ack=False) as tab:
+    with table(ms.as_posix(), ack=False, readonly=True) as tab:
         time_arr = np.unique(tab.getcol("TIME"))
         times = Time(time_arr * u.s, format="mjd")
     return times
@@ -46,9 +54,19 @@ def find_sunrise_sunset(
     sun_coords: SkyCoord,
     times: Time,
 ) -> SunTimes:
+    """Find the sunrise and sunset times for a measurement set.
+
+    Args:
+        ms (Path): Measurement set to find the sunrise and sunset times for.
+        sun_coords (SkyCoord): Coordinates of the Sun
+        times (Time): Times in the measurement set.
+
+    Returns:
+        SunTimes: Sunrise and sunset times.
+    """    
     # Check when the Sun is above the horizon
     # Get the position of the observatory
-    with table(str(ms / "ANTENNA"), ack=False) as tab:
+    with table(str(ms / "ANTENNA"), ack=False, readonly=True) as tab:
         logger.info(f"Reading {ms / 'ANTENNA'} for position information...")
         pos = EarthLocation.from_geocentric(
             *tab.getcol("POSITION")[0] * u.m  # First antenna is fine
@@ -56,6 +74,7 @@ def find_sunrise_sunset(
     # Convert to AltAz
     sun_altaz = sun_coords.transform_to(AltAz(obstime=times, location=pos))
 
+    # Find sunrise and sunset
     sun_times = SunTimes()
     above_horizon = sun_altaz.alt > 0 * u.deg
     if not above_horizon.any():
@@ -82,10 +101,10 @@ def get_yanda(yanda: Union[Path, str]) -> Path:
     on the system.
 
     Args:
-        version (str, optional): wsclean image tag. Defaults to "3.1".
+        yanda (Union[Path, str]): Path to YandaSoft image or dockerhub image.
 
     Returns:
-        Path: Path to wsclean image.
+        Path: Path to YandaSoft image.
     """
     Client.load(str(yanda))
     if isinstance(yanda, str):
@@ -103,6 +122,19 @@ def uvlin(
     offset: int = 0,
     yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
 ) -> None:
+    """Run UVlin on a measurement set.
+
+    Args:
+        ms (Path): Measurement set to run UVlin on.
+        sun_times (SunTimes): Sunrise and sunset times.
+        data_column (str, optional): Column to fit. Defaults to "DATA".
+        order (int, optional): Order of polynomial. Defaults to 2.
+        harmonic (int, optional): Order of sinusoids. Defaults to 0.
+        width (int, optional): Number of channels to fit in box. Defaults to 0.
+        offset (int, optional): Offset of box. Defaults to 0.
+        yanda (Union[Path, str], optional): Singularity image. Defaults to "docker://csirocass/yandasoft:release-openmpi4".
+    """    
+    # Create a parset for UVlin and write it to disk
     parset = f"""# ccontsubtract parameters
 # The measurement set name - the data will be overwritten
 CContSubtract.dataset                   = {ms.as_posix()}
@@ -129,11 +161,10 @@ CContSubtract.gridder                     = Box
     with open(parset_path, "w") as f:
         f.write(parset)
 
+    # Get the YandaSoft image and run ccontsubtract with singularity
     command = f"ccontsubtract -c {parset_path.as_posix()}"
-    root_dir = ms.parent
-
-    # Get the YandaSoft image
     simage = get_yanda(yanda)
+    root_dir = ms.parent
     output = Client.execute(
         image=simage.resolve(strict=True).as_posix(),
         command=command.split(),
@@ -155,6 +186,17 @@ def main(
     offset: int = 0,
     yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
 ):
+    """Main function to run UVlin on a measurement set.
+
+    Args:
+        ms (Path): Measurement set to run UVlin on.
+        data_column (str, optional): MS column to use. Defaults to "DATA".
+        order (int, optional): Order of poly fit. Defaults to 2.
+        harmonic (int, optional): Order of sinusoid fit. Defaults to 0.
+        width (int, optional): Width of channel box. Defaults to 0.
+        offset (int, optional): Offset of channel box. Defaults to 0.
+        yanda (Union[Path, str], optional): YandaSoft image. Defaults to "docker://csirocass/yandasoft:release-openmpi4".
+    """    
     # Procedure:
     # 1. Get the position of the Sun for all times in the measurement set
     # 2. Check when the Sun is above the horizon
@@ -211,16 +253,19 @@ Running UVlin on the measurement set for all times when the Sun is above the hor
     {sun_times.rise.iso} - {sun_times.set.iso}
         """
     )
-    uvlin(
-        ms=ms,
-        sun_times=sun_times,
-        data_column=data_column,
-        order=order,
-        harmonic=harmonic,
-        width=width,
-        offset=offset,
-        yanda=yanda,
-    )
+    try:
+        uvlin(
+            ms=ms,
+            sun_times=sun_times,
+            data_column=data_column,
+            order=order,
+            harmonic=harmonic,
+            width=width,
+            offset=offset,
+            yanda=yanda,
+        )
+    except Exception as e:
+        logger.error(f"Something went wrong with UVlin: {e}")
 
     # Phase rotate the measurement set back to the original phase centre
     logger.info(
@@ -240,6 +285,7 @@ Phase rotating the measurement set back to the original phase centre:
 
 
 def cli():
+    """Command line interface for uvlin."""
     import argparse
 
     parser = argparse.ArgumentParser(
