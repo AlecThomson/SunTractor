@@ -16,7 +16,7 @@ import numpy as np
 from astropy import units as u
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord, get_sun
 from astropy.time import Time
-from casacore.tables import table
+from casacore.tables import makecoldesc, table
 from potato import msutils
 from spython.main import Client
 
@@ -179,7 +179,8 @@ CContSubtract.gridder                     = Box
 
 def main(
     ms: Path,
-    data_column: str = "DATA",
+    input_column: str = "DATA",
+    output_column: str = "DATA",
     order: int = 2,
     harmonic: int = 0,
     width: int = 0,
@@ -206,6 +207,25 @@ def main(
     # 5. Phase rotate the measurement set back to the original phase centre
     # 6. ????
     # 7. Profit
+
+    # Check the columns in the measurement set
+    if input_column == output_column:
+        logger.warning(
+            "Input and output columns are the same. Data will be overwritten."
+        )
+
+    else:
+        logger.info(f"Input column: {input_column}")
+        logger.info(f"Output column: {output_column}")
+        # Check if the output column already exists
+        with table(ms.as_posix(), ack=False, readonly=False) as tab:
+            if output_column in tab.colnames():
+                raise ValueError(f"Output column {output_column} already exists.")
+            # Copy the input column to the output column
+            logger.info(f"Copying {input_column} to {output_column}")
+            desc = makecoldesc(output_column, tab.getcoldesc(input_column))
+            desc["name"] = output_column
+            tab.addcols(desc)
 
     times = get_unique_times(ms)
     sun_coords = get_sun(times)
@@ -242,7 +262,7 @@ Phase rotating the measurement set to the Sun's mean position:
         ms.as_posix(),
         ra=sun_mean_coord.ra.deg,
         dec=sun_mean_coord.dec.deg,
-        datacolumn=[data_column],
+        datacolumn=[output_column],
     )
 
     # Run UVlin on the measurement set for all times when the Sun is above
@@ -257,7 +277,7 @@ Running UVlin on the measurement set for all times when the Sun is above the hor
         uvlin(
             ms=ms,
             sun_times=sun_times,
-            data_column=data_column,
+            data_column=output_column,
             order=order,
             harmonic=harmonic,
             width=width,
@@ -278,7 +298,7 @@ Phase rotating the measurement set back to the original phase centre:
         ms.as_posix(),
         ra=orginal_phase.ra.deg,
         dec=orginal_phase.dec.deg,
-        datacolumn=data_column,
+        datacolumn=[output_column],
     )
 
     logger.info("Done!")
@@ -298,7 +318,13 @@ def cli():
         help="Measurement set to remove the Sun from",
     )
     parser.add_argument(
-        "--data-column",
+        "--input-column",
+        type=str,
+        default="DATA",
+        help="Data column to use",
+    )
+    parser.add_argument(
+        "--output-column",
         type=str,
         default="DATA",
         help="Data column to use",
@@ -346,7 +372,8 @@ def cli():
 
     main(
         Path(args.ms),
-        data_column=args.data_column,
+        input_column=args.input_column,
+        output_column=args.output_column,
         order=args.order,
         harmonic=args.harmonic,
         width=args.width,
