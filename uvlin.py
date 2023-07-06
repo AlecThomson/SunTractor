@@ -234,6 +234,7 @@ def main(
     # Check when the Sun is above the horizon
     sun_times = find_sunrise_sunset(ms, sun_coords, times)
 
+    # Handle when sunrise or sunset is outside the observation
     if sun_times.rise is None and sun_times.set is None:
         logger.info("The Sun was never above the horizon. Yay!")
         return
