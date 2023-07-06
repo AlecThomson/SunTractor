@@ -3,6 +3,7 @@
 """
 Run UVlin to remove the Sun from a measurement set.
 """
+import sys
 from pathlib import Path
 from potato import get_pos, msutils
 from astropy.coordinates import SkyCoord, get_sun, AltAz, EarthLocation
@@ -229,6 +230,41 @@ def cli():
         description=__doc__,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument(
+        "ms",
+        type=str,
+        help="Measurement set to remove the Sun from",
+    )
+    parser.add_argument(
+        "--data-column",
+        type=str,
+        default="DATA",
+        help="Data column to use",
+    )
+    parser.add_argument(
+        "--order",
+        type=int,
+        default=2,
+        help="Order of the polynomial to fit",
+    )
+    parser.add_argument(
+        "--harmonic",
+        type=int,
+        default=0,
+        help="Order of harmonic to fit",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=0,
+        help="Width of the window to fit",
+    )
+    parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Offset of the window to fit",
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "--hosted-yanda",
@@ -245,3 +281,16 @@ def cli():
     args = parser.parse_args()
 
     yanda=Path(args.local_yanda) if args.local_yanda else args.hosted_yanda
+
+    main(
+        Path(args.ms),
+        data_column=args.data_column,
+        order=args.order,
+        harmonic=args.harmonic,
+        width=args.width,
+        offset=args.offset,
+        yanda=yanda,
+    )
+
+if __name__ == "__main__":
+    sys.exit(cli())
