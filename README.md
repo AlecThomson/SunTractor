@@ -1,6 +1,8 @@
 # SunTractor
 Subtract the Sun from radio interferometric visibilities.
 
+See YandaSoft's [ccontsubtract](https://yandasoft.readthedocs.io/en/latest/calim/ccontsubtract.html) for more detail.
+
 ## Installation
 
 Obtain and install [Singularity](https://docs.sylabs.io/guides/3.5/user-guide/index.html), and Python (I recommend [Miniforge](https://github.com/conda-forge/miniforge) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html)).
