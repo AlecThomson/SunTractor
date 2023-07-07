@@ -18,6 +18,7 @@ from astropy.coordinates import AltAz, EarthLocation, SkyCoord, get_sun
 from astropy.time import Time
 from casacore.tables import makecoldesc, table
 from potato import msutils
+from shade_ms.main import main as shade_ms
 from spython.main import Client
 
 logger = logging.getLogger(__name__)
@@ -186,6 +187,7 @@ def main(
     width: int = 0,
     offset: int = 0,
     yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
+    make_plots: bool = False,
 ):
     """Main function to run UVlin on a measurement set.
 
@@ -197,6 +199,7 @@ def main(
         width (int, optional): Width of channel box. Defaults to 0.
         offset (int, optional): Offset of channel box. Defaults to 0.
         yanda (Union[Path, str], optional): YandaSoft image. Defaults to "docker://csirocass/yandasoft:release-openmpi4".
+        make_plots (bool, optional): Make plots of visibilities. Defaults to False.
     """
     # Procedure:
     # 1. Get the position of the Sun for all times in the measurement set
@@ -225,7 +228,13 @@ def main(
             logger.info(f"Copying {input_column} to {output_column}")
             desc = makecoldesc(output_column, tab.getcoldesc(input_column))
             desc["name"] = output_column
-            tab.addcols(desc)
+            tab.addcols(desc) 
+
+    # Make 'before' plots
+    if make_plots:
+        shade_ms(f"{ms.as_posix()} -x TIME -y UV -a {input_column}:amp --norm linear --cmap viridis --ymax 1000 --ymin 0".split())
+        shade_ms(f"{ms.as_posix()} -x TIME -y UV -a {input_column}:phase --norm linear --cmap twilight_shifted --ymax 1000 --ymin 0".split())
+
 
     times = get_unique_times(ms)
     sun_coords = get_sun(times)
@@ -301,6 +310,15 @@ Phase rotating the measurement set back to the original phase centre:
         dec=orginal_phase.dec.deg,
         datacolumn=[output_column],
     )
+
+    # Make 'after' plots
+    if make_plots:
+        if input_column == output_column:
+            suffix = ".suntractor"
+        else:
+            suffix = ""
+        shade_ms(f"{ms.as_posix()} -x TIME -y UV -a {output_column}:amp --norm linear --cmap viridis --ymax 1000 --ymin 0 --suffix {suffix}".split())
+        shade_ms(f"{ms.as_posix()} -x TIME -y UV -a {output_column}:phase --norm linear --cmap twilight_shifted --ymax 1000 --ymin 0 --suffix {suffix}".split())
 
     logger.info("Done!")
 
