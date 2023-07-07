@@ -5,6 +5,7 @@ description = "Subtract the Sun from radio interferometric visibilities."
 authors = ["Alec Thomson"]
 license = "MIT"
 readme = "README.md"
+packages = [{include = "suntractor"}]
 
 [tool.poetry.dependencies]
 python = "^3.8"
@@ -21,3 +22,7 @@ black = "^23.3.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+suntractor = "suntractor:cli"
+
