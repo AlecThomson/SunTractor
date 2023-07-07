@@ -372,6 +372,11 @@ def cli():
         default=0,
         help="Offset of the window to fit",
     )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Make plots of the visibilities",
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "--hosted-yanda",
@@ -398,6 +403,7 @@ def cli():
         width=args.width,
         offset=args.offset,
         yanda=yanda,
+        make_plots=args.plot,
     )
 
 

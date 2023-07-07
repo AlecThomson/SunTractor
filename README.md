@@ -16,8 +16,7 @@ pip install git+https://github.com/AlecThomson/SunTractor.git
 
 ```
 $ suntractor -h
-usage: suntractor [-h] [--input-column INPUT_COLUMN] [--output-column OUTPUT_COLUMN] [--order ORDER] [--harmonic HARMONIC] [--width WIDTH] [--offset OFFSET]
-                  [--hosted-yanda HOSTED_YANDA | --local-yanda LOCAL_YANDA]
+usage: suntractor [-h] [--input-column INPUT_COLUMN] [--output-column OUTPUT_COLUMN] [--order ORDER] [--harmonic HARMONIC] [--width WIDTH] [--offset OFFSET] [--plot] [--hosted-yanda HOSTED_YANDA | --local-yanda LOCAL_YANDA]
                   ms
 
 Run UVlin to remove the Sun from a measurement set. See https://yandasoft.readthedocs.io/en/develop/calim/ccontsubtract.html for more information on UVlin.
@@ -35,6 +34,7 @@ options:
   --harmonic HARMONIC   Order of harmonic to fit (default: 0)
   --width WIDTH         Width of the window to fit (default: 0)
   --offset OFFSET       Offset of the window to fit (default: 0)
+  --plot                Make plots of the visibilities (default: False)
   --hosted-yanda HOSTED_YANDA
                         Docker or Singularity image for wsclean (default: docker://csirocass/yandasoft:release-openmpi4)
   --local-yanda LOCAL_YANDA
