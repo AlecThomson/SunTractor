@@ -83,15 +83,20 @@ def find_sunrise_sunset(
 
     zero_crossings = np.where(np.diff(np.sign(sun_altaz.alt)))[0]
 
+    # Buffer by the diameter of the Sun
+    sun_diameter = 32 * u.arcmin
+    sun_speed = 360 * u.deg / u.day # Due to Earth's rotation
+    buffer_time = (sun_diameter / sun_speed).decompose() # Time to add to sunrise and sunset
+
     for crossing in zero_crossings:
         if (
             np.sign(sun_altaz.alt[crossing - 1]) < 0
             and np.sign(sun_altaz.alt[crossing + 1]) > 0
         ):
-            sun_times.rise = times[crossing]
+            sun_times.rise = times[crossing] - 3 * buffer_time
             logger.info(f"Sunrise was at {sun_times.rise.iso}")
         else:
-            sun_times.set = times[crossing]
+            sun_times.set = times[crossing] + 3 * buffer_time
             logger.info(f"Sunset was at {sun_times.set.iso}")
 
     return sun_times
@@ -121,6 +126,7 @@ def uvlin(
     harmonic: int = 0,
     width: int = 0,
     offset: int = 0,
+    threshold: float = 0.0,
     yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
 ) -> None:
     """Run UVlin on a measurement set.
@@ -133,6 +139,7 @@ def uvlin(
         harmonic (int, optional): Order of sinusoids. Defaults to 0.
         width (int, optional): Number of channels to fit in box. Defaults to 0.
         offset (int, optional): Offset of box. Defaults to 0.
+        threshold (float, optional): Threshold for fitting. Defaults to 0.0.
         yanda (Union[Path, str], optional): Singularity image. Defaults to "docker://csirocass/yandasoft:release-openmpi4".
     """
     # Create a parset for UVlin and write it to disk
@@ -145,6 +152,7 @@ CContsubtract.order                     = {order}
 CContsubtract.harmonic                  = {harmonic}
 CContsubtract.width                     = {width}
 CContsubtract.offset                    = {offset}
+CContsubtract.threshold                 = {threshold}
 CContsubtract.timerange                 = [{(sun_times.rise.mjd * u.day).to(u.s).value},{(sun_times.set.mjd * u.day).to(u.s).value}]
 # The model definition - we provide a zero Jy source to keep ccontsubtract happy
 CContsubtract.sources.names              = [lsm]
@@ -186,8 +194,10 @@ def main(
     harmonic: int = 0,
     width: int = 0,
     offset: int = 0,
+    threshold: float = 0.0,
     yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
     make_plots: bool = False,
+    overwrite: bool = False,
 ):
     """Main function to run UVlin on a measurement set.
 
@@ -222,13 +232,18 @@ def main(
         logger.info(f"Output column: {output_column}")
         # Check if the output column already exists
         with table(ms.as_posix(), ack=False, readonly=False) as tab:
-            if output_column in tab.colnames():
+            if output_column in tab.colnames() and not overwrite:
                 raise ValueError(f"Output column {output_column} already exists.")
+            if output_column in tab.colnames() and overwrite:
+                logger.warning(f"Overwriting output column {output_column}")
+                tab.removecols(output_column)
             # Copy the input column to the output column
             logger.info(f"Copying {input_column} to {output_column}")
             desc = makecoldesc(output_column, tab.getcoldesc(input_column))
             desc["name"] = output_column
             tab.addcols(desc) 
+            tab.putcol(output_column, tab.getcol(input_column))
+            tab.flush()
 
     # Make 'before' plots
     if make_plots:
@@ -293,6 +308,7 @@ Running UVlin on the measurement set for all times when the Sun is above the hor
             width=width,
             offset=offset,
             yanda=yanda,
+            threshold=threshold,
         )
     except Exception as e:
         logger.error(f"Something went wrong with UVlin: {e}")
@@ -314,7 +330,7 @@ Phase rotating the measurement set back to the original phase centre:
     # Make 'after' plots
     if make_plots:
         if input_column == output_column:
-            suffix = ".suntractor"
+            suffix = "suntractor"
         else:
             suffix = ""
         shade_ms(f"{ms.as_posix()} -x TIME -y UV -a {output_column}:amp --norm linear --cmap viridis --ymax 1000 --ymin 0 --suffix {suffix}".split())
@@ -373,9 +389,20 @@ def cli():
         help="Offset of the window to fit",
     )
     parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.0,
+        help="Threshold for fitting",
+    )
+    parser.add_argument(
         "--plot",
         action="store_true",
         help="Make plots of the visibilities",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite the output column if it already exists",
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -402,8 +429,10 @@ def cli():
         harmonic=args.harmonic,
         width=args.width,
         offset=args.offset,
+        threshold=args.threshold,
         yanda=yanda,
         make_plots=args.plot,
+        overwrite=args.overwrite,
     )
 
 
