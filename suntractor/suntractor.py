@@ -9,6 +9,7 @@ for more information on UVlin.
 import logging
 import sys
 from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
@@ -16,10 +17,11 @@ import numpy as np
 from astropy import units as u
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord, get_sun
 from astropy.time import Time
-from casacore.tables import makecoldesc, table
+from casacore.tables import makecoldesc, table, taql
 from potato import msutils
 from shade_ms.main import main as shade_ms
 from spython.main import Client
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -30,6 +32,102 @@ class SunTimes:
     rise: Optional[Time] = None
     set: Optional[Time] = None
 
+
+def uvlin_plot(
+        ms: Path,
+        antenna_1: int,
+        antenna_2: int,
+        start_time: u.Quantity,
+        end_time: u.Quantity,
+        input_column: str = "DATA",
+        output_column: str = "CORRECTED_DATA",
+        out_path: Optional[Path] = None,
+):
+    with table(ms.as_posix(), readonly=True, ack=False) as tab:
+        # Get DATA for 'test_time'
+        data = taql(
+            f"select {input_column} from $tab where TIME >= {start_time.to(u.s).value} and TIME <= {end_time.to(u.s).value} and ANTENNA1!=ANTENNA2 and ANTENNA1=={antenna_1} and ANTENNA2=={antenna_2}"
+        ).getcol(f"{input_column}")
+        corrected_data = taql(
+            f"select {output_column} from $tab where TIME >= {start_time.to(u.s).value} and TIME <= {end_time.to(u.s).value} and ANTENNA1!=ANTENNA2 and ANTENNA1=={antenna_1} and ANTENNA2=={antenna_2}"
+        ).getcol(f"{output_column}")
+        flag = taql(
+            f"select FLAG from $tab where TIME >= {start_time.to(u.s).value} and TIME <= {end_time.to(u.s).value} and ANTENNA1!=ANTENNA2 and ANTENNA1=={antenna_1} and ANTENNA2=={antenna_2}"
+        ).getcol("FLAG")
+        data[flag] = np.nan + 1j * np.nan
+        corrected_data[flag] = np.nan + 1j * np.nan
+
+    model_data = data - corrected_data
+    _correlations = ["XX", "XY", "YX", "YY"]
+    _names = ["Original", "Model", "Residual"]
+
+    xx, xy, yx, yy = data.T
+    mxx, mxy, myx, myy = model_data.T
+    rxx, rxy, ryx, ryy = corrected_data.T
+
+    for i, corrs in enumerate(
+            zip(
+                (xx, xy, yx, yy),
+                (mxx, mxy, myx, myy),
+                (rxx, rxy, ryx, ryy),
+            )
+        ):
+        fig, axs = plt.subplots(4, 3, sharex=True, sharey=True, figsize=(15, 15))
+        fig.suptitle(f"Antenna {antenna_1} - {antenna_2} - {_correlations[i]}")
+        for f, func in enumerate((np.real, np.imag, np.abs, np.angle)):
+            if f==0 or f==1:
+                vmin, vmax = -10, 10
+                cmap = "RdBu_r"
+            elif f==2:
+                vmin, vmax = 0, 10
+                cmap = "viridis"
+            else:
+                vmin, vmax = -np.pi, np.pi
+                cmap = "twilight_shifted"
+            for j, cor in enumerate(corrs):
+                ax = axs[f, j]
+                im = ax.imshow(func(cor), aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+                fig.colorbar(im)
+                ax.set_xlabel("Time step")
+                ax.set_ylabel("Channel")
+                ax.set_title(f"{func.__name__}({_correlations[i]}) - {_names[j]}")
+        if out_path is not None:
+            outf = out_path / f"{antenna_1}-{antenna_2}-{_correlations[i]}.pdf"
+            fig.savefig(out_path / f"{antenna_1}-{antenna_2}-{_correlations[i]}.pdf")
+            logger.info(f"Saved plot to {outf}")
+        
+        plt.close(fig)
+
+def make_plots(
+        ms: Path,
+        sun_times: SunTimes,
+        sub_dir: Optional[str] = None,
+        n_antennas: int = 3,
+):
+    # Plot ± 1 hour around sunrise and sunset
+    time_start = sun_times.rise.value * u.day - 1 * u.hour
+    time_end = sun_times.rise.value * u.day + 1 * u.hour
+
+    if sub_dir is not None:
+        out_path =  ms.parent / sub_dir / "suntractor_plots"
+    else:
+        out_path = ms.parent / "suntractor_plots"
+    # Make the output directory if it doesn't exist
+    if not out_path.exists():
+        out_path.mkdir()
+        logger.info(f"Created output directory {out_path}")
+
+    # Plot baselines between n_antennas
+    for ant1, ant2 in combinations(range(n_antennas), 2):
+        uvlin_plot(
+            ms=ms,
+            antenna_1=ant1,
+            antenna_2=ant2,
+            start_time=time_start,
+            end_time=time_end,
+            out_path=out_path,
+        )
+    
 
 def get_unique_times(
     ms: Path,
@@ -208,6 +306,8 @@ def main(
     MaxUV: Optional[float] = None,
     yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
     overwrite: bool = False,
+    plot: bool = False,
+    plot_n_antennas: int = 3,
 ):
     """Main function to run UVlin on a measurement set.
 
@@ -318,6 +418,11 @@ Running UVlin on the measurement set for all times when the Sun is above the hor
     except Exception as e:
         logger.error(f"Something went wrong with UVlin: {e}")
 
+
+    # Make plots before phase rotating back
+    if plot:
+        make_plots(ms, sun_times, sub_dir="sun_phase", plot_n_antennas=plot_n_antennas)
+
     # Phase rotate the measurement set back to the original phase centre
     logger.info(
         f"""
@@ -331,6 +436,10 @@ Phase rotating the measurement set back to the original phase centre:
         dec=orginal_phase.dec.deg,
         datacolumn=[output_column],
     )
+
+    # Make plots after phase rotating back
+    if plot:
+        make_plots(ms, sun_times, sub_dir="target_phase", plot_n_antennas=plot_n_antennas)
 
     logger.info("Done!")
 
@@ -394,18 +503,29 @@ def cli():
         "--minuv",
         type=float,
         default=None,
-        help="Minimum UV distance to fit",
+        help="Minimum UV distance (in metres) to fit",
     )
     parser.add_argument(
         "--maxuv",
         type=float,
         default=None,
-        help="Maximum UV distance to fit",
+        help="Maximum UV distance (in metres)   to fit",
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite the output column if it already exists",
+    )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Make plots of the data before and after UVlin",
+    )
+    parser.add_argument(
+        "--nantennas",
+        type=int,
+        default=3,
+        help="Number of antennas to plot",
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -437,6 +557,8 @@ def cli():
         MaxUV=args.maxuv,
         yanda=yanda,
         overwrite=args.overwrite,
+        plot=args.plot,
+        plot_n_antennas=args.nantennas,
     )
 
 
