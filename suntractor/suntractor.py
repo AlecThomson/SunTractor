@@ -116,14 +116,13 @@ def make_plots(
     time_start = sun_times.rise.value * u.day - 1 * u.hour
     time_end = sun_times.rise.value * u.day + 1 * u.hour
 
+
+    out_path = ms.parent / "suntractor_plots"
     if sub_dir is not None:
-        out_path = ms.parent / sub_dir / "suntractor_plots"
-    else:
-        out_path = ms.parent / "suntractor_plots"
+        out_path /= sub_dir
     # Make the output directory if it doesn't exist
-    if not out_path.exists():
-        out_path.mkdir()
-        logger.info(f"Created output directory {out_path}")
+    out_path.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Created output directory {out_path}")
 
     # Plot baselines between n_antennas
     for ant1, ant2 in combinations(range(n_antennas), 2):
@@ -428,7 +427,7 @@ Running UVlin on the measurement set for all times when the Sun is above the hor
 
     # Make plots before phase rotating back
     if plot:
-        make_plots(ms, sun_times, sub_dir="sun_phase", plot_n_antennas=plot_n_antennas)
+        make_plots(ms, sun_times, sub_dir="sun_phase", n_antennas=plot_n_antennas)
 
     # Phase rotate the measurement set back to the original phase centre
     logger.info(
