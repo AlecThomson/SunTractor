@@ -13,6 +13,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
+import matplotlib.pyplot as plt
 import numpy as np
 from astropy import units as u
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord, get_sun
@@ -21,7 +22,6 @@ from casacore.tables import makecoldesc, table, taql
 from potato import msutils
 from shade_ms.main import main as shade_ms
 from spython.main import Client
-import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -34,14 +34,14 @@ class SunTimes:
 
 
 def uvlin_plot(
-        ms: Path,
-        antenna_1: int,
-        antenna_2: int,
-        start_time: u.Quantity,
-        end_time: u.Quantity,
-        input_column: str = "DATA",
-        output_column: str = "CORRECTED_DATA",
-        out_path: Optional[Path] = None,
+    ms: Path,
+    antenna_1: int,
+    antenna_2: int,
+    start_time: u.Quantity,
+    end_time: u.Quantity,
+    input_column: str = "DATA",
+    output_column: str = "CORRECTED_DATA",
+    out_path: Optional[Path] = None,
 ):
     with table(ms.as_posix(), readonly=True, ack=False) as tab:
         # Get DATA for 'test_time'
@@ -66,19 +66,19 @@ def uvlin_plot(
     rxx, rxy, ryx, ryy = corrected_data.T
 
     for i, corrs in enumerate(
-            zip(
-                (xx, xy, yx, yy),
-                (mxx, mxy, myx, myy),
-                (rxx, rxy, ryx, ryy),
-            )
-        ):
+        zip(
+            (xx, xy, yx, yy),
+            (mxx, mxy, myx, myy),
+            (rxx, rxy, ryx, ryy),
+        )
+    ):
         fig, axs = plt.subplots(4, 3, sharex=True, sharey=True, figsize=(15, 15))
         fig.suptitle(f"Antenna {antenna_1} - {antenna_2} - {_correlations[i]}")
         for f, func in enumerate((np.real, np.imag, np.abs, np.angle)):
-            if f==0 or f==1:
+            if f == 0 or f == 1:
                 vmin, vmax = -10, 10
                 cmap = "RdBu_r"
-            elif f==2:
+            elif f == 2:
                 vmin, vmax = 0, 10
                 cmap = "viridis"
             else:
@@ -86,7 +86,14 @@ def uvlin_plot(
                 cmap = "twilight_shifted"
             for j, cor in enumerate(corrs):
                 ax = axs[f, j]
-                im = ax.imshow(func(cor), aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+                im = ax.imshow(
+                    func(cor),
+                    aspect="auto",
+                    cmap=cmap,
+                    vmin=vmin,
+                    vmax=vmax,
+                    origin="lower",
+                )
                 fig.colorbar(im)
                 ax.set_xlabel("Time step")
                 ax.set_ylabel("Channel")
@@ -95,21 +102,22 @@ def uvlin_plot(
             outf = out_path / f"{antenna_1}-{antenna_2}-{_correlations[i]}.pdf"
             fig.savefig(out_path / f"{antenna_1}-{antenna_2}-{_correlations[i]}.pdf")
             logger.info(f"Saved plot to {outf}")
-        
+
         plt.close(fig)
 
+
 def make_plots(
-        ms: Path,
-        sun_times: SunTimes,
-        sub_dir: Optional[str] = None,
-        n_antennas: int = 3,
+    ms: Path,
+    sun_times: SunTimes,
+    sub_dir: Optional[str] = None,
+    n_antennas: int = 3,
 ):
     # Plot ± 1 hour around sunrise and sunset
     time_start = sun_times.rise.value * u.day - 1 * u.hour
     time_end = sun_times.rise.value * u.day + 1 * u.hour
 
     if sub_dir is not None:
-        out_path =  ms.parent / sub_dir / "suntractor_plots"
+        out_path = ms.parent / sub_dir / "suntractor_plots"
     else:
         out_path = ms.parent / "suntractor_plots"
     # Make the output directory if it doesn't exist
@@ -127,7 +135,7 @@ def make_plots(
             end_time=time_end,
             out_path=out_path,
         )
-    
+
 
 def get_unique_times(
     ms: Path,
@@ -418,7 +426,6 @@ Running UVlin on the measurement set for all times when the Sun is above the hor
     except Exception as e:
         logger.error(f"Something went wrong with UVlin: {e}")
 
-
     # Make plots before phase rotating back
     if plot:
         make_plots(ms, sun_times, sub_dir="sun_phase", plot_n_antennas=plot_n_antennas)
@@ -439,7 +446,9 @@ Phase rotating the measurement set back to the original phase centre:
 
     # Make plots after phase rotating back
     if plot:
-        make_plots(ms, sun_times, sub_dir="target_phase", plot_n_antennas=plot_n_antennas)
+        make_plots(
+            ms, sun_times, sub_dir="target_phase", plot_n_antennas=plot_n_antennas
+        )
 
     logger.info("Done!")
 
