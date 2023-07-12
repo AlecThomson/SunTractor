@@ -85,8 +85,10 @@ def find_sunrise_sunset(
 
     # Buffer by the diameter of the Sun
     sun_diameter = 32 * u.arcmin
-    sun_speed = 360 * u.deg / u.day # Due to Earth's rotation
-    buffer_time = (sun_diameter / sun_speed).decompose() # Time to add to sunrise and sunset
+    sun_speed = 360 * u.deg / u.day  # Due to Earth's rotation
+    buffer_time = (
+        sun_diameter / sun_speed
+    ).decompose()  # Time to add to sunrise and sunset
 
     for crossing in zero_crossings:
         if (
@@ -127,6 +129,8 @@ def uvlin(
     width: int = 0,
     offset: int = 0,
     threshold: float = 0.0,
+    MinUV: Optional[float] = None,
+    MaxUV: Optional[float] = None,
     yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
 ) -> None:
     """Run UVlin on a measurement set.
@@ -165,6 +169,11 @@ CContsubtract.sources.comp.direction.dec = 0.
 CContSubtract.gridder                     = Box
     """
 
+    for option in ["MinUV", "MaxUV"]:
+        optional_val = locals()[option]
+        if optional_val is not None:
+            parset += f"CContsubtract.{option} = {optional_val}\n"
+
     parset_path = ms.with_suffix(".uvlin.parset")
     logger.info(f"Writing parset to {parset_path}")
     with open(parset_path, "w") as f:
@@ -195,8 +204,9 @@ def main(
     width: int = 0,
     offset: int = 0,
     threshold: float = 0.0,
+    MinUV: Optional[float] = None,
+    MaxUV: Optional[float] = None,
     yanda: Union[Path, str] = "docker://csirocass/yandasoft:release-openmpi4",
-    make_plots: bool = False,
     overwrite: bool = False,
 ):
     """Main function to run UVlin on a measurement set.
@@ -209,7 +219,6 @@ def main(
         width (int, optional): Width of channel box. Defaults to 0.
         offset (int, optional): Offset of channel box. Defaults to 0.
         yanda (Union[Path, str], optional): YandaSoft image. Defaults to "docker://csirocass/yandasoft:release-openmpi4".
-        make_plots (bool, optional): Make plots of visibilities. Defaults to False.
     """
     # Procedure:
     # 1. Get the position of the Sun for all times in the measurement set
@@ -241,15 +250,9 @@ def main(
             logger.info(f"Copying {input_column} to {output_column}")
             desc = makecoldesc(output_column, tab.getcoldesc(input_column))
             desc["name"] = output_column
-            tab.addcols(desc) 
+            tab.addcols(desc)
             tab.putcol(output_column, tab.getcol(input_column))
             tab.flush()
-
-    # Make 'before' plots
-    if make_plots:
-        shade_ms(f"{ms.as_posix()} -x TIME -y UV -a {input_column}:amp --norm linear --cmap viridis --ymax 1000 --ymin 0".split())
-        shade_ms(f"{ms.as_posix()} -x TIME -y UV -a {input_column}:phase --norm linear --cmap twilight_shifted --ymax 1000 --ymin 0".split())
-
 
     times = get_unique_times(ms)
     sun_coords = get_sun(times)
@@ -309,6 +312,8 @@ Running UVlin on the measurement set for all times when the Sun is above the hor
             offset=offset,
             yanda=yanda,
             threshold=threshold,
+            MinUV=MinUV,
+            MaxUV=MaxUV,
         )
     except Exception as e:
         logger.error(f"Something went wrong with UVlin: {e}")
@@ -326,15 +331,6 @@ Phase rotating the measurement set back to the original phase centre:
         dec=orginal_phase.dec.deg,
         datacolumn=[output_column],
     )
-
-    # Make 'after' plots
-    if make_plots:
-        if input_column == output_column:
-            suffix = "suntractor"
-        else:
-            suffix = ""
-        shade_ms(f"{ms.as_posix()} -x TIME -y UV -a {output_column}:amp --norm linear --cmap viridis --ymax 1000 --ymin 0 --suffix {suffix}".split())
-        shade_ms(f"{ms.as_posix()} -x TIME -y UV -a {output_column}:phase --norm linear --cmap twilight_shifted --ymax 1000 --ymin 0 --suffix {suffix}".split())
 
     logger.info("Done!")
 
@@ -395,9 +391,16 @@ def cli():
         help="Threshold for fitting",
     )
     parser.add_argument(
-        "--plot",
-        action="store_true",
-        help="Make plots of the visibilities",
+        "--minuv",
+        type=float,
+        default=None,
+        help="Minimum UV distance to fit",
+    )
+    parser.add_argument(
+        "--maxuv",
+        type=float,
+        default=None,
+        help="Maximum UV distance to fit",
     )
     parser.add_argument(
         "--overwrite",
@@ -430,8 +433,9 @@ def cli():
         width=args.width,
         offset=args.offset,
         threshold=args.threshold,
+        MinUV=args.minuv,
+        MaxUV=args.maxuv,
         yanda=yanda,
-        make_plots=args.plot,
         overwrite=args.overwrite,
     )
 
