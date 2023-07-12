@@ -22,6 +22,7 @@ from casacore.tables import makecoldesc, table, taql
 from potato import msutils
 from shade_ms.main import main as shade_ms
 from spython.main import Client
+from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -108,6 +109,8 @@ def uvlin_plot(
 
 def make_plots(
     ms: Path,
+    input_column: str,
+    output_column: str,
     sun_times: SunTimes,
     sub_dir: Optional[str] = None,
     n_antennas: int = 3,
@@ -115,7 +118,6 @@ def make_plots(
     # Plot ± 1 hour around sunrise and sunset
     time_start = sun_times.rise.value * u.day - 1 * u.hour
     time_end = sun_times.rise.value * u.day + 1 * u.hour
-
 
     out_path = ms.parent / "suntractor_plots"
     if sub_dir is not None:
@@ -125,7 +127,9 @@ def make_plots(
     logger.info(f"Created output directory {out_path}")
 
     # Plot baselines between n_antennas
-    for ant1, ant2 in combinations(range(n_antennas), 2):
+    for ant1, ant2 in tqdm(
+        combinations(range(n_antennas), 2), desc="Plotting baselines"
+    ):
         uvlin_plot(
             ms=ms,
             antenna_1=ant1,
@@ -133,6 +137,8 @@ def make_plots(
             start_time=time_start,
             end_time=time_end,
             out_path=out_path,
+            input_column=input_column,
+            output_column=output_column,
         )
 
 
@@ -397,7 +403,7 @@ Phase rotating the measurement set to the Sun's mean position:
         ms.as_posix(),
         ra=sun_mean_coord.ra.deg,
         dec=sun_mean_coord.dec.deg,
-        datacolumn=[output_column],
+        datacolumn=[input_column, output_column],
     )
 
     # Run UVlin on the measurement set for all times when the Sun is above
@@ -427,7 +433,14 @@ Running UVlin on the measurement set for all times when the Sun is above the hor
 
     # Make plots before phase rotating back
     if plot:
-        make_plots(ms, sun_times, sub_dir="sun_phase", n_antennas=plot_n_antennas)
+        make_plots(
+            ms=ms,
+            input_column=input_column,
+            output_column=output_column,
+            sun_times=sun_times,
+            sub_dir="sun_phase",
+            n_antennas=plot_n_antennas,
+        )
 
     # Phase rotate the measurement set back to the original phase centre
     logger.info(
@@ -440,13 +453,18 @@ Phase rotating the measurement set back to the original phase centre:
         ms.as_posix(),
         ra=orginal_phase.ra.deg,
         dec=orginal_phase.dec.deg,
-        datacolumn=[output_column],
+        datacolumn=[input_column, output_column],
     )
 
     # Make plots after phase rotating back
     if plot:
         make_plots(
-            ms, sun_times, sub_dir="target_phase", plot_n_antennas=plot_n_antennas
+            ms=ms,
+            input_column=input_column,
+            output_column=output_column,
+            sun_times=sun_times,
+            sub_dir="target_phase",
+            n_antennas=plot_n_antennas,
         )
 
     logger.info("Done!")

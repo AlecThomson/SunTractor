@@ -14,7 +14,8 @@ astropy = "^5"
 python-casacore = "*"
 spython = "*"
 potato = {git = "https://gitlab.com/Sunmish/potato.git"}
-shadems = "*"
+tqdm = "*"
+matplotlib = "*"
 
 [tool.poetry.group.dev.dependencies]
 isort = "^5.12.0"
