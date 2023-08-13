@@ -15,8 +15,9 @@ from typing import Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
+from attrs import define, field
 from astropy import units as u
-from astropy.coordinates import AltAz, EarthLocation, SkyCoord, get_sun
+from astropy.coordinates import AltAz, EarthLocation, SkyCoord, get_sun, get_body
 from astropy.time import Time
 from casacore.tables import makecoldesc, table, taql
 from potato import msutils
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-@dataclass(slots=True)
+@define
 class SunTimes:
     rise: Optional[Time] = None
     set: Optional[Time] = None
@@ -100,8 +101,8 @@ def uvlin_plot(
                 ax.set_ylabel("Channel")
                 ax.set_title(f"{func.__name__}({_correlations[i]}) - {_names[j]}")
         if out_path is not None:
-            outf = out_path / f"{antenna_1}-{antenna_2}-{_correlations[i]}.pdf"
-            fig.savefig(out_path / f"{antenna_1}-{antenna_2}-{_correlations[i]}.pdf")
+            outf = out_path / f"{ms.name}-{antenna_1}-{antenna_2}-{_correlations[i]}.pdf"
+            fig.savefig(outf)
             logger.info(f"Saved plot to {outf}")
 
         plt.close(fig)
@@ -160,16 +161,31 @@ def get_unique_times(
         times = Time(time_arr * u.s, format="mjd")
     return times
 
+def get_first_antenna(ms: Path) -> EarthLocation:
+    """Get the position of the first antenna in a measurement set.
+
+    Args:
+        ms (Path): Measurement set to get the antenna position from.
+
+    Returns:
+        EarthLocation: Position of the first antenna.
+    """    
+    with table(str(ms / "ANTENNA"), ack=False, readonly=True) as tab:
+        logger.info(f"Reading {ms / 'ANTENNA'} for position information...")
+        pos = EarthLocation.from_geocentric(
+            *tab.getcol("POSITION")[0] * u.m  # First antenna is fine
+        )
+    return pos
 
 def find_sunrise_sunset(
-    ms: Path,
+    pos: EarthLocation,
     sun_coords: SkyCoord,
     times: Time,
 ) -> SunTimes:
     """Find the sunrise and sunset times for a measurement set.
 
     Args:
-        ms (Path): Measurement set to find the sunrise and sunset times for.
+        pos (EarthLocation): Position of the observatory.
         sun_coords (SkyCoord): Coordinates of the Sun
         times (Time): Times in the measurement set.
 
@@ -177,12 +193,6 @@ def find_sunrise_sunset(
         SunTimes: Sunrise and sunset times.
     """
     # Check when the Sun is above the horizon
-    # Get the position of the observatory
-    with table(str(ms / "ANTENNA"), ack=False, readonly=True) as tab:
-        logger.info(f"Reading {ms / 'ANTENNA'} for position information...")
-        pos = EarthLocation.from_geocentric(
-            *tab.getcol("POSITION")[0] * u.m  # First antenna is fine
-        )
     # Convert to AltAz
     sun_altaz = sun_coords.transform_to(AltAz(obstime=times, location=pos))
 
@@ -368,11 +378,12 @@ def main(
             tab.flush()
 
     times = get_unique_times(ms)
-    sun_coords = get_sun(times)
-    sun_mean_coord = get_sun(times.mean())
+    pos = get_first_antenna(ms)
+    sun_coords = get_body("Sun", times, pos)
+    sun_mean_coord = get_body("Sun", times.mean(), pos)
 
     # Check when the Sun is above the horizon
-    sun_times = find_sunrise_sunset(ms, sun_coords, times)
+    sun_times = find_sunrise_sunset(pos, sun_coords, times)
 
     # Handle when sunrise or sunset is outside the observation
     if sun_times.rise is None and sun_times.set is None:
